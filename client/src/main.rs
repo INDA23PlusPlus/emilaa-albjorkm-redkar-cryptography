@@ -23,8 +23,11 @@ fn send_str(s: &str, stream: &mut TcpStream) {
 }
 
 fn main() {
+    let root_hash: String = String::from("nothing");
+    // kolla här: ska vi en funktion som täcker alla typer av meddeledanden som klienten
+    // kan skicka? eller kanske en för send_file(file), read_file(file_number) ?
     match TcpStream::connect("127.0.0.1:8383") {
-        Ok(mut s) => {
+            Ok(mut s) => {
             let mut reader = s.try_clone().unwrap();
             let mut buf_reader = BufReader::new(&mut reader);
             send_str("I am a message.", &mut s);

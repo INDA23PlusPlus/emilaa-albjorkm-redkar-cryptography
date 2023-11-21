@@ -92,10 +92,10 @@ fn send(msg: common::ServerToClientResponse, stream: &mut TcpStream) -> Result<(
     let packet = common::rkyv::to_bytes::<_, 256>(&msg).unwrap();
     let header = format!("{:016X}", packet.len());
     stream.write_vectored(&[
-        // header
+        // Header
         IoSlice::new(header.as_bytes()),
 
-        // packet
+        // Packet
         IoSlice::new(packet.as_slice()),
     ])?;
 
@@ -137,7 +137,7 @@ fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToSer
             send(ServerToClientResponse::Raw(msg.to_string()), s).unwrap();
         }
         _ => {
-            println!("no handler for: {:#?}", cmd);
+            println!("No handler for: {:#?}", cmd);
             let mut cmd_name = format!("{:?}", cmd);
             cmd_name.truncate(cmd_name.find('(').unwrap_or(cmd_name.len()));
             send(ServerToClientResponse::UnknownCommand(cmd_name), s).unwrap();

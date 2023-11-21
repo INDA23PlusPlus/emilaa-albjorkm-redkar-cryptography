@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 rkyv = { version = "0.7.42", features = ["validation"] }
-
+rust-crypto = "^0.2"

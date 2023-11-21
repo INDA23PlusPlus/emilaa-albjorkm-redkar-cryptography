@@ -1,21 +1,27 @@
 use std::io::{BufReader, prelude::*};
 use std::net::{TcpListener, TcpStream, Shutdown};
 use common::{ClientToServerCommand, ServerToClientResponse};
+use std::str::from_utf8;
 
 fn recieve(mut s: TcpStream) {
-    loop {
-        let buf_reader = BufReader::new(&mut s);
-        let data: String = buf_reader
-                           .lines()
-                           .map(|r| r.unwrap())
-                           .take_while(|l| !l.is_empty())
-                           .collect::<Vec<_>>().join("\n");
+    let peer = s.peer_addr().unwrap();
+    let mut buf_reader = BufReader::new(&mut s);
+    
+    println!("Connected > {peer}");
 
-        if data.eq("0x0") { break; } // Byt ut det här.
-        println!("From {} >> {}", s.peer_addr().unwrap(), data);
+    loop {
+        // Ta emot hex header och ta reda på hur långt meddelandet är.
+        let mut header_info = [0u8; 16];
+        if buf_reader.read_exact(&mut header_info).is_err() { break; }
+        let bytes_to_read = u64::from_str_radix(from_utf8(&header_info).unwrap(), 16).unwrap();
+
+        let mut data = vec![0u8; bytes_to_read as usize]; // Skicka inte absurdt stora filer på 32-bit system.
+        buf_reader.read_exact(&mut data).unwrap();
+
+        println!("{}: {}", peer, from_utf8(&data).unwrap());
     }
 
-    println!("Disconnected: {}", s.peer_addr().unwrap());
+    println!("Disconnected > {peer}");
     s.shutdown(Shutdown::Both).unwrap();
 }
 
@@ -33,13 +39,9 @@ fn main() {
 
     let listener = TcpListener::bind("0.0.0.0:8383").unwrap();
 
-
     for s in listener.incoming() {
         match s {
-            Ok(s) => {
-                println!("Connected: {}", s.peer_addr().unwrap());
-                recieve(s);
-            }
+            Ok(s) => { std::thread::spawn(move || recieve(s)); }
 
             Err(e) => { println!("Error: {}", e); }
         }

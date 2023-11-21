@@ -22,6 +22,11 @@ fn send_str(s: &str, stream: &mut TcpStream) {
     send(common::ClientToServerCommand::Raw(s.to_owned()), stream).unwrap();
 }
 
+fn check_hashes_against_tophash() {
+    //kolla här
+    todo!();
+}
+
 fn main() {
     let root_hash: String = String::from("nothing");
     // kolla här: ska vi en funktion som täcker alla typer av meddeledanden som klienten

@@ -3,14 +3,6 @@ use self::crypto::digest::Digest;
 use self::crypto::sha3::Sha3;
 use rkyv::{Archive, Deserialize, Serialize};
 pub use rkyv as rkyv;
-#[derive(Archive, Deserialize, Serialize)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub enum ClientToServerCommand {
-    Get(String),
-    Upload(String, String),
-    List(String),
-}
 
 const LEAF_COUNT: usize = 8;
 const EMPTY_STRING: String = String::new();
@@ -72,6 +64,22 @@ impl Merkle {
 #[archive_attr(derive(Debug))]
 pub enum ServerToClientResponse {
     UploadOk(String),
+    UploadFailed(String, String),
     FileNotFound(String),
-    File(String)
+    File(String),
+    FileListing(Vec<String>),
+    Raw(String),
+    UnknownCommand(String),
 }
+
+#[derive(Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub enum ClientToServerCommand {
+    Get(String),
+    Upload(String, String),
+    List(String),
+    Raw(String),
+}
+
+

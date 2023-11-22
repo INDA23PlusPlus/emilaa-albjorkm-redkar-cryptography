@@ -14,7 +14,7 @@ pub struct Merkle {
     // perfect binary trees have the size leaf_count * 2 - 1, so we are 1-indexing the nodes
     pub tree: [Option<String>; LEAF_COUNT*2],
     // blir kanske förvirrande om trädet är 1-indexerad och files är inte det
-    pub files: [Option<String>; LEAF_COUNT+1];
+    pub files: [Option<String>; LEAF_COUNT+1],
     hasher: Sha3,
     file_count: usize,
 }
@@ -23,14 +23,14 @@ impl Merkle {
     pub fn make_tree() -> Merkle { 
         Merkle { 
             tree: Default::default(), 
-            files: Default::default();
+            files: Default::default(),
             hasher: Sha3::sha3_256(),
             file_count: 0 as usize,
         }
     }
 
     pub fn add_file(&mut self, file: &str) {
-        self.files[file_count + 1] = Some(file.to_string());
+        self.files[self.file_count + 1] = Some(file.to_string());
         self.hasher.reset();
         self.hasher.input_str(file);
         self.tree[self.file_count + LEAF_COUNT] = Some(self.hasher.result_str());
@@ -76,7 +76,7 @@ impl Merkle {
         while node > 1 {
             node /= 2;
             for i in 0..2 {
-                if (self.tree[node * 2 + i].is_some() && current_known_hash != node * 2 + i) {
+                if self.tree[node * 2 + i].is_some() && current_known_hash != node * 2 + i {
                     complement_hashes.push(node * 2 + i);
                 }
             }

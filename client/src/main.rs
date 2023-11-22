@@ -3,6 +3,7 @@ use std::net::TcpStream;
 use std::io::Write;
 use common::{ClientToServerCommand, ServerToClientResponse};
 use std::str::from_utf8;
+use clap::{Parser, Subcommand, command};
 
 fn send(msg: common::ClientToServerCommand, stream: &mut TcpStream) -> Result<(), std::io::Error> {
     let packet = common::rkyv::to_bytes::<_, 256>(&msg).unwrap();
@@ -27,7 +28,45 @@ fn check_hashes_against_tophash() {
     todo!();
 }
 
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Adds files to myapp
+    Upload { name: String },
+    Ls {
+        #[arg(default_value_t = String::from("/"))]
+        name: String
+    },
+    Download { name: String },
+    DebugRaw { text: String },
+}
+
 fn main() {
+    let cli = Cli::parse();
+
+    let to_server = match cli.command {
+        Commands::Upload { name } => {
+            ClientToServerCommand::Upload(name.clone(), name)
+        }
+        Commands::Ls { name } => {
+            ClientToServerCommand::List(name)
+        }
+        Commands::Download { name } => {
+            ClientToServerCommand::Get(name)
+        }
+        Commands::DebugRaw { text } => {
+            ClientToServerCommand::Raw(text)
+        }
+    };
+
     let root_hash: String = String::from("nothing");
     // kolla här: ska vi en funktion som täcker alla typer av meddeledanden som klienten
     // kan skicka? eller kanske en för send_file(file), read_file(file_number) ?
@@ -35,7 +74,8 @@ fn main() {
             Ok(mut s) => {
             let mut reader = s.try_clone().unwrap();
             let mut buf_reader = BufReader::new(&mut reader);
-            send_str("I am a message.", &mut s);
+            send(to_server, &mut s).unwrap();
+            //send_str("I am a message.", &mut s);
 
             loop {
                 let mut header_info = [0u8; 16];

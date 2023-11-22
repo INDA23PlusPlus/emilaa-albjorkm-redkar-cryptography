@@ -66,23 +66,33 @@ impl Merkle {
         todo!();
     }
 
-    fn get_complement_nodes(&self, mut node: usize) -> Vec<usize> {
+    fn get_complement_nodes(&self, mut file_id: usize) -> Vec<String> {
         /* kolla här: vill vi skicka fildatan och komplement hasher i separata
          * meddelanden, eller i en och samma?
+         * just nu skickar jag fildatan med också
         */ 
+        let mut data_complement_hashes: Vec<String> = Vec::new();
+        if let Some(file) = self.files[file_id].clone() {
+            data_complement_hashes.push(file);
+        } else {
+            panic!("No file with file_id: {}!", file_id);
+        }
+
         // return a vector of complementary nodes from greatest depth to highest
-        let mut complement_hashes: Vec<usize> = Vec::new();
+        let mut node = file_id + LEAF_COUNT;
         let mut current_known_hash: usize = node;
         while node > 1 {
             node /= 2;
             for i in 0..2 {
-                if self.tree[node * 2 + i].is_some() && current_known_hash != node * 2 + i {
-                    complement_hashes.push(node * 2 + i);
+                if let Some(hash) = self.tree[node * 2 + i].clone() {
+                    if current_known_hash != node * 2 + i {
+                        data_complement_hashes.push(hash);
+                    }
                 }
             }
             current_known_hash = node;
         }
-        return complement_hashes;
+        return data_complement_hashes;
     }
 }
 

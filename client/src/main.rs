@@ -1,3 +1,6 @@
+extern crate crypto;
+use self::crypto::digest::Digest;
+use self::crypto::sha3::Sha3;
 use std::io::{BufReader, IoSlice, prelude::*};
 use std::net::TcpStream;
 use std::io::Write;
@@ -23,9 +26,17 @@ fn send_str(s: &str, stream: &mut TcpStream) {
     send(common::ClientToServerCommand::Raw(s.to_owned()), stream).unwrap();
 }
 
-fn check_hashes_against_tophash() {
+fn check_hashes_against_tophash(top_hash: String, data_complement_hashes: Vec<String>) -> bool {
     //kolla här
-    todo!();
+    let mut hasher = Sha3::sha3_256();
+    let mut hash_val: String = data_complement_hashes[0].clone();
+    for i in 1..data_complement_hashes.len() {
+        hasher.reset();
+        hasher.input_str(hash_val.as_str());
+        hasher.input_str(data_complement_hashes[i].as_str());
+        hash_val = hasher.result_str();
+    }
+    return top_hash == hash_val;
 }
 
 

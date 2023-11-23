@@ -178,8 +178,11 @@ fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToSer
 
                 println!("Found requested file: {}", archived.name);
                 file_found = true;
-                send(ServerToClientResponse::File(file.to_vec()), s).unwrap();
 
+                let complements = merkle.get_complement_nodes(i + 1);
+
+                send(ServerToClientResponse::File(complements.0, complements.1), s).unwrap();
+                break
             }
             if !file_found {
                 send(ServerToClientResponse::FileNotFound(name.to_string()), s).unwrap();

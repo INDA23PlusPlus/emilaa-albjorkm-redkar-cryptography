@@ -44,6 +44,9 @@ fn check_hashes_against_tophash(top_hash: String, data_complement_hashes: Vec<St
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
+    #[clap(long, short)]
+    password: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -62,9 +65,11 @@ enum Commands {
 
 fn handle_response(archived: &ArchivedServerToClientResponse) {
     match archived {
-        ArchivedServerToClientResponse::File(file_and_meta_bytes) => {
-           // TODO: Add verification, and encryption!
-           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(file_and_meta_bytes).unwrap();
+        ArchivedServerToClientResponse::File(file_and_meta_bytes, merkle_hashes) => {
+           // TODO: Add verification, and decrypt file_and_meta.data!
+           // TODO: Remember to save the root merkle hash to an appropriate place...
+           eprintln!("Hashes: {:#?}", merkle_hashes);
+           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes[0]).unwrap();
            std::io::stdout().write_all(&file_and_meta.data).unwrap();
         }
         // TODO: Possible improvement: Handle FileListing as well
@@ -73,11 +78,15 @@ fn handle_response(archived: &ArchivedServerToClientResponse) {
     }
 }
 
+// Example usage:
+// cargo run -- --password hi upload funny.txt
+
 fn main() {
     let cli = Cli::parse();
 
     let to_server = match cli.command {
         Commands::Upload { name } => {
+            // TODO: Encrypt data before upload
             let data = std::fs::read(&name).unwrap();
             ClientToServerCommand::Upload(name, data)
         }

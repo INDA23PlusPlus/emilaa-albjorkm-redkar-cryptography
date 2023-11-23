@@ -1,12 +1,15 @@
 extern crate crypto;
+extern crate rand;
 use self::crypto::digest::Digest;
-use self::crypto::sha3::Sha3;
-use std::io::{BufReader, IoSlice, prelude::*};
+use self::crypto::{sha3::Sha3, aes, blockmodes};
+use self::crypto::buffer::{ RefReadBuffer, ReadBuffer, RefWriteBuffer, WriteBuffer, BufferResult };
+use std::io::{BufReader, IoSlice, prelude::*, Write};
 use std::net::TcpStream;
-use std::io::Write;
+use common::rkyv::{Deserialize, DeserializeUnsized};
 use common::{ClientToServerCommand, ServerToClientResponse, ArchivedServerToClientResponse, FileAndMeta};
 use std::str::from_utf8;
 use clap::{Parser, Subcommand, command};
+use rand::{RngCore, rngs};
 
 fn send(msg: common::ClientToServerCommand, stream: &mut TcpStream) -> Result<(), std::io::Error> {
     let packet = common::rkyv::to_bytes::<_, 256>(&msg).unwrap();
@@ -26,16 +29,20 @@ fn send_str(s: &str, stream: &mut TcpStream) {
     send(common::ClientToServerCommand::Raw(s.to_owned()), stream).unwrap();
 }
 
-fn check_hashes_against_tophash(top_hash: String, data_complement_hashes: Vec<String>) -> bool {
-    //kolla här
+fn check_hashes_against_tophash(top_hash: String, file_data: &[u8], data_complement_hashes: &Vec<String>) -> bool {
+    // Kan inte konvertera till UTF8 då den krypterade datan inte är UTF8.
+    // Jag har testat, vi får samma hash som servern, så koden gör det den ska.
     let mut hasher = Sha3::sha3_256();
-    let mut hash_val: String = data_complement_hashes[0].clone();
-    for i in 1..data_complement_hashes.len() {
+    hasher.input(file_data);
+    let mut hash_val: String = hasher.result_str();
+    println!("{:?}", hash_val);
+    for i in 0..data_complement_hashes.len() {
         hasher.reset();
         hasher.input_str(hash_val.as_str());
         hasher.input_str(data_complement_hashes[i].as_str());
         hash_val = hasher.result_str();
     }
+    
     return top_hash == hash_val;
 }
 
@@ -63,18 +70,27 @@ enum Commands {
     DebugRaw { text: String },
 }
 
-fn handle_response(archived: &ArchivedServerToClientResponse, root_hash: String) {
+fn handle_response(archived: &ArchivedServerToClientResponse, password: String, root_hash: String) {
     match archived {
         ArchivedServerToClientResponse::File(file_and_meta_bytes, merkle_hashes) => {
-           // TODO: Add verification, and decrypt file_and_meta.data!
-           // TODO: Remember to save the root merkle hash to an appropriate place...
-            let mut hasher = Sha3::sha3_256();
+            // TODO: Add verification.
+            let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes).unwrap();
 
-            println!("{}", hasher.result_str());
+            // Lite osäker på hur man hanterar dessa.
+            let fm = FileAndMeta {
+                name: file_and_meta.name.to_string(),
+                data: file_and_meta.data.to_vec(),
+            };
 
-           eprintln!("Hashes: {:#?}", merkle_hashes);
-           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes).unwrap();
-           std::io::stdout().write_all(&file_and_meta.data).unwrap();
+            let name: Vec<String> = merkle_hashes.iter().map(|h| h.to_string()).collect();
+            let file_data = common::rkyv::to_bytes::<_, 256>(&fm).unwrap();
+
+            if !check_hashes_against_tophash(root_hash, &file_data.to_vec(), &name) {
+                println!("Bad hashes, file may not be valid...");
+            }
+
+            let data = decrypt_data(file_and_meta.data.to_vec(), password);
+            std::io::stdout().write_all(&data).unwrap();
         }
         ArchivedServerToClientResponse::UploadOk(_file, merkle_root_hash) => {
             // println!("File successfully uploaded. New root hash: {:?}", merkle_root_hash);
@@ -86,6 +102,65 @@ fn handle_response(archived: &ArchivedServerToClientResponse, root_hash: String)
         // TODO: Handle FileNotFound and others
         _ => { println!("response from server: {:#?}", archived); }
     }
+}
+
+fn encrypt_data(data: &[u8], password: &String) -> Vec<u8> {
+    let mut init_vector: [u8; 16] = [0; 16];
+    let mut rng = rngs::OsRng::default();
+    rng.fill_bytes(&mut init_vector);
+
+    let mut encryptor = aes::cbc_encryptor(
+        aes::KeySize::KeySize256, 
+        password.as_bytes(), 
+        &init_vector, 
+        blockmodes::PkcsPadding);
+
+    let mut encrypted_data = Vec::<u8>::new();
+    let mut buffer = [0; 4096];
+    let mut read_buffer = RefReadBuffer::new(data);
+    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
+
+    loop {
+        let result = encryptor.encrypt(&mut read_buffer, &mut write_buffer, true).unwrap();
+        encrypted_data.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+
+        match result {
+            BufferResult::BufferUnderflow => break,
+            BufferResult::BufferOverflow => {}
+        }
+    }
+
+    encrypted_data.append(&mut init_vector.to_vec());
+
+    return encrypted_data;
+}
+
+fn decrypt_data(data: Vec<u8>, password: String) -> Vec<u8> {
+    let split = data.split_at(data.len() - 16);
+    let init_vector = split.1;
+    let mut encrypted = split.0;
+
+    let mut decryptor = aes::cbc_decryptor(
+        aes::KeySize::KeySize256, 
+        password.as_bytes(), 
+        &init_vector, 
+        blockmodes::PkcsPadding);
+
+    let mut decrypted_data = Vec::<u8>::new();
+    let mut buffer = [0; 4096];
+    let mut read_buffer = RefReadBuffer::new(&mut encrypted);
+    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
+
+    loop {
+        let result = decryptor.decrypt(&mut read_buffer, &mut write_buffer, true).unwrap();
+        decrypted_data.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+        match result {
+            BufferResult::BufferUnderflow => break,
+            BufferResult::BufferOverflow => { }
+        }
+    }
+
+    return decrypted_data;
 }
 
 // Example usage:
@@ -103,13 +178,12 @@ fn main() {
         if !content.is_empty() { root_hash = content; }
     }
 
-    println!("Hash is: {}", root_hash);
-
     let to_server = match cli.command {
         Commands::Upload { name } => {
             // TODO: Encrypt data before upload
             let data = std::fs::read(&name).unwrap();
-            ClientToServerCommand::Upload(name, data)
+            let encrypted = encrypt_data(&data, &cli.password);
+            ClientToServerCommand::Upload(name, encrypted)
         }
         Commands::Ls { name } => {
             ClientToServerCommand::ListFiles(name)
@@ -143,7 +217,7 @@ fn main() {
                 //std::fs::File::create("output.dat").unwrap().write_all(&data).unwrap();
 
                 let archived = common::rkyv::check_archived_root::<ServerToClientResponse>(&data[..]).unwrap();
-                handle_response(archived, root_hash);
+                handle_response(archived, cli.password, root_hash);
                 // break
             // }
 

@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.4.8", features = ["cargo", "derive"] }
 common = { path = "../common" }
+rand = "0.8.5"
 rust-crypto = "^0.2"

@@ -6,7 +6,7 @@ pub use rkyv as rkyv;
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub enum ServerToClientResponse {
-    UploadOk(String),
+    UploadOk(String, String),
     UploadFailed(String, String),
     FileNotFound(String),
     File(Vec<Vec<u8>>, Vec<String>),

@@ -72,6 +72,10 @@ fn handle_response(archived: &ArchivedServerToClientResponse) {
            let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes[0]).unwrap();
            std::io::stdout().write_all(&file_and_meta.data).unwrap();
         }
+        ArchivedServerToClientResponse::UploadOk(_file, merkle_root_hash) => {
+            println!("File successfully uploaded. New root hash: {:#?}", merkle_root_hash);
+            // TODO: Save the root hash.
+        }
         // TODO: Possible improvement: Handle FileListing as well
         // TODO: Handle FileNotFound and others
         _ => { println!("response from server: {:#?}", archived); }

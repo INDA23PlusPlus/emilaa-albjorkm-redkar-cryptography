@@ -157,7 +157,10 @@ fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToSer
             let file_bytes = common::rkyv::to_bytes::<_, 256>(&file_and_meta).unwrap();
             merkle.lock().unwrap().add_file(&file_bytes);
 
-            send(ServerToClientResponse::UploadOk(name.to_string()), s).unwrap();
+
+            let root_hash = merkle.lock().unwrap().get_root_hash().unwrap();
+
+            send(ServerToClientResponse::UploadOk(name.to_string(), root_hash), s).unwrap();
         }
         ArchivedClientToServerCommand::Get(name) => {
             let merkle = merkle.lock().unwrap();

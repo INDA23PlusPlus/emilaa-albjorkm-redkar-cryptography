@@ -4,7 +4,7 @@ use self::crypto::sha3::Sha3;
 use std::io::{BufReader, IoSlice, prelude::*};
 use std::net::TcpStream;
 use std::io::Write;
-use common::{ClientToServerCommand, ServerToClientResponse};
+use common::{ClientToServerCommand, ServerToClientResponse, ArchivedServerToClientResponse, FileAndMeta};
 use std::str::from_utf8;
 use clap::{Parser, Subcommand, command};
 
@@ -60,12 +60,24 @@ enum Commands {
     DebugRaw { text: String },
 }
 
+fn handle_response(archived: &ArchivedServerToClientResponse) {
+    match archived {
+        ArchivedServerToClientResponse::File(file_and_meta_bytes) => {
+           // TODO: Add verification, and encryption!
+           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(file_and_meta_bytes).unwrap();
+           std::io::stdout().write_all(&file_and_meta.data).unwrap();
+        }
+        _ => { println!("response from server: {:#?}", archived); }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
     let to_server = match cli.command {
         Commands::Upload { name } => {
-            ClientToServerCommand::Upload(name.clone(), name)
+            let data = std::fs::read(&name).unwrap();
+            ClientToServerCommand::Upload(name, data)
         }
         Commands::Ls { name } => {
             ClientToServerCommand::List(name)
@@ -100,7 +112,7 @@ fn main() {
                 //std::fs::File::create("output.dat").unwrap().write_all(&data).unwrap();
 
                 let archived = common::rkyv::check_archived_root::<ServerToClientResponse>(&data[..]).unwrap();
-                println!("response from server: {:#?}", archived);
+                handle_response(archived);
                 break
             }
 

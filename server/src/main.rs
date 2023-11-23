@@ -3,8 +3,9 @@ use self::crypto::digest::Digest;
 use self::crypto::sha3::Sha3;
 use std::io::{BufReader, IoSlice, prelude::*};
 use std::net::{TcpListener, TcpStream, Shutdown, SocketAddr};
-use common::{ClientToServerCommand, ServerToClientResponse, ArchivedClientToServerCommand};
+use common::{ClientToServerCommand, ServerToClientResponse, ArchivedClientToServerCommand, FileAndMeta};
 use std::str::from_utf8;
+use std::sync::{Arc, Mutex};
 
 // leaf count is 8 right now to be debuggable
 const LEAF_COUNT: usize = 8;
@@ -14,31 +15,31 @@ pub struct Merkle {
     // perfect binary trees have the size leaf_count * 2 - 1, so we are 1-indexing the nodes
     pub tree: [Option<String>; LEAF_COUNT*2],
     // blir kanske förvirrande om trädet är 1-indexerad och files är inte det
-    pub files: [Option<String>; LEAF_COUNT+1],
+    pub files: [Option<Vec<u8>>; LEAF_COUNT+1],
     hasher: Sha3,
     file_count: usize,
 }
 
-impl Merkle { 
-    pub fn make_tree() -> Merkle { 
-        Merkle { 
-            tree: Default::default(), 
+impl Merkle {
+    pub fn make_tree() -> Merkle {
+        Merkle {
+            tree: Default::default(),
             files: Default::default(),
             hasher: Sha3::sha3_256(),
             file_count: 0 as usize,
         }
     }
 
-    pub fn add_file(&mut self, file: &str) {
-        self.files[self.file_count + 1] = Some(file.to_string());
+    pub fn add_file(&mut self, file: &[u8]) {
         self.hasher.reset();
-        self.hasher.input_str(file);
+        self.hasher.input(file);
+        self.files[self.file_count + 1] = Some(file.to_vec());
         self.tree[self.file_count + LEAF_COUNT] = Some(self.hasher.result_str());
         self.update_tree();
         self.file_count += 1;
         //self.sendRootHash();
     }
-    
+
     fn update_tree(&mut self) {
         let mut node: usize = (self.file_count+LEAF_COUNT)/2;
         while node >= 1 {
@@ -66,14 +67,15 @@ impl Merkle {
         todo!();
     }
 
-    fn get_complement_nodes(&self, mut file_id: usize) -> Vec<String> {
+    fn get_complement_nodes(&self, mut file_id: usize) -> (Vec<Vec<u8>>, Vec<String>) {
         /* kolla här: vill vi skicka fildatan och komplement hasher i separata
          * meddelanden, eller i en och samma?
          * just nu skickar jag fildatan med också
-        */ 
-        let mut data_complement_hashes: Vec<String> = Vec::new();
+        */
+        let mut data_complement_files: Vec<Vec<u8>> = vec![];
+        let mut data_complement_hashes: Vec<String> = vec![];
         if let Some(file) = self.files[file_id].clone() {
-            data_complement_hashes.push(file);
+            data_complement_files.push(file);
         } else {
             panic!("No file with file_id: {}!", file_id);
         }
@@ -92,7 +94,7 @@ impl Merkle {
             }
             current_known_hash = node;
         }
-        return data_complement_hashes;
+        return (data_complement_files, data_complement_hashes);
     }
 }
 
@@ -113,7 +115,7 @@ fn send(msg: common::ServerToClientResponse, stream: &mut TcpStream) -> Result<(
 }
 
 
-fn recieve(mut s: TcpStream) {
+fn recieve(mut s: TcpStream, merkle: Arc<Mutex<Merkle>>) {
     let peer = s.peer_addr().unwrap();
     let mut tcp_writer = s.try_clone().unwrap();
     let mut buf_reader = BufReader::new(&mut s);
@@ -133,18 +135,57 @@ fn recieve(mut s: TcpStream) {
         //std::fs::File::create("output.dat").unwrap().write_all(&data).unwrap();
 
         let archived = common::rkyv::check_archived_root::<ClientToServerCommand>(&data[..]).unwrap();
-        handle_command(peer, &mut tcp_writer, archived);
+        handle_command(peer, &mut tcp_writer, archived, merkle.clone());
     }
 
     println!("Disconnected > {peer}");
     s.shutdown(Shutdown::Both).unwrap();
 }
 
-fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToServerCommand) {
+fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToServerCommand, merkle: Arc<Mutex<Merkle>>) {
     match cmd {
         ArchivedClientToServerCommand::Raw(msg) => {
             println!("{}: {}", peer, msg);
             send(ServerToClientResponse::Raw(msg.to_string()), s).unwrap();
+        }
+        ArchivedClientToServerCommand::Upload(name, data) => {
+            let file_and_meta = FileAndMeta {
+                name: name.to_string(),
+                data: data.to_vec(),
+            };
+
+            let file_bytes = common::rkyv::to_bytes::<_, 256>(&file_and_meta).unwrap();
+            merkle.lock().unwrap().add_file(&file_bytes);
+
+            send(ServerToClientResponse::UploadOk(name.to_string()), s).unwrap();
+        }
+        ArchivedClientToServerCommand::Get(name) => {
+            let merkle = merkle.lock().unwrap();
+
+            // This is really ugly. But unfortunately we do not know where the file is in the tree.
+            // An extra B-tree could be used to store this. Or, we could make sure the merkle tree
+            // was based around the path separator. But that would be too much work probably.
+            let mut file_found = false;
+            for i in 0 .. merkle.file_count {
+                // Remember that files are not zero indexed in the merkle tree.
+                let Some(file) = &merkle.files[i + 1] else {
+                    continue
+                };
+                let archived = common::rkyv::check_archived_root::<FileAndMeta>(file).unwrap();
+                if *name != archived.name {
+                    continue
+                }
+
+                println!("Found requested file: {}", archived.name);
+                file_found = true;
+                send(ServerToClientResponse::File(file.to_vec()), s).unwrap();
+
+            }
+            if !file_found {
+                send(ServerToClientResponse::FileNotFound(name.to_string()), s).unwrap();
+            }
+
+
         }
         _ => {
             println!("No handler for: {:#?}", cmd);
@@ -159,11 +200,14 @@ fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToSer
 fn main() {
     let listener = TcpListener::bind("0.0.0.0:8383").unwrap();
     // i hackmd:n så föreslår dem att klienten kan kunna skicka en init signal för servern att skapa merkle trädet. Då liknar servern ett faktiskt server. Vi kan implementera det om ni vill. Just nu så skapar jag bara ett merkle träd här.
-    let hash_tree: Merkle = Merkle::make_tree();
+    let merkle = Arc::new(Mutex::new(Merkle::make_tree()));
 
     for s in listener.incoming() {
         match s {
-            Ok(s) => { std::thread::spawn(move || recieve(s)); }
+            Ok(s) => {
+                let m = merkle.clone();
+                std::thread::spawn(move || recieve(s, m));
+            }
             Err(e) => { println!("Error: {}", e); }
         }
     }

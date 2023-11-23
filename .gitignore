@@ -5,3 +5,6 @@ output.dat
 funny.txt
 funnier.txt
 funniest.txt
+bin/
+client/lorem_ipsum.txt
+client/lorem_ipsum_short.txt

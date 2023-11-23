@@ -9,7 +9,7 @@ pub enum ServerToClientResponse {
     UploadOk(String, String),
     UploadFailed(String, String),
     FileNotFound(String),
-    File(Vec<Vec<u8>>, Vec<String>),
+    File(Vec<u8>, Vec<String>),
     FileListing(Vec<String>),
     Raw(String),
     UnknownCommand(String),

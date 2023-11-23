@@ -67,15 +67,15 @@ impl Merkle {
         todo!();
     }
 
-    fn get_complement_nodes(&self, mut file_id: usize) -> (Vec<Vec<u8>>, Vec<String>) {
+    fn get_complement_nodes(&self, mut file_id: usize) -> (Vec<u8>, Vec<String>) {
         /* kolla här: vill vi skicka fildatan och komplement hasher i separata
          * meddelanden, eller i en och samma?
          * just nu skickar jag fildatan med också
         */
-        let mut data_complement_files: Vec<Vec<u8>> = vec![];
+        let mut data_complement_files: Vec<u8> = vec![];
         let mut data_complement_hashes: Vec<String> = vec![];
         if let Some(file) = self.files[file_id].clone() {
-            data_complement_files.push(file);
+            data_complement_files = file;
         } else {
             panic!("No file with file_id: {}!", file_id);
         }
@@ -126,9 +126,9 @@ fn recieve(mut s: TcpStream, merkle: Arc<Mutex<Merkle>>) {
         // Ta emot hex header och ta reda på hur långt meddelandet är.
         let mut header_info = [0u8; 16];
         if buf_reader.read_exact(&mut header_info).is_err() { break; }
-        let bytes_to_read = u64::from_str_radix(from_utf8(&header_info).unwrap(), 16).unwrap();
+        let bytes_to_read = usize::from_str_radix(from_utf8(&header_info).unwrap(), 16).unwrap();
 
-        let mut data = vec![0u8; bytes_to_read as usize]; // Skicka inte absurdt stora filer på 32-bit system.
+        let mut data = vec![0u8; bytes_to_read]; // Skicka inte absurdt stora filer på 32-bit system.
         buf_reader.read_exact(&mut data).unwrap();
 
         // Avkommentera för att se skickat data i form av fil:

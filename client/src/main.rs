@@ -63,18 +63,24 @@ enum Commands {
     DebugRaw { text: String },
 }
 
-fn handle_response(archived: &ArchivedServerToClientResponse) {
+fn handle_response(archived: &ArchivedServerToClientResponse, root_hash: String) {
     match archived {
         ArchivedServerToClientResponse::File(file_and_meta_bytes, merkle_hashes) => {
            // TODO: Add verification, and decrypt file_and_meta.data!
            // TODO: Remember to save the root merkle hash to an appropriate place...
+            let mut hasher = Sha3::sha3_256();
+
+            println!("{}", hasher.result_str());
+
            eprintln!("Hashes: {:#?}", merkle_hashes);
-           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes[0]).unwrap();
+           let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(&file_and_meta_bytes).unwrap();
            std::io::stdout().write_all(&file_and_meta.data).unwrap();
         }
         ArchivedServerToClientResponse::UploadOk(_file, merkle_root_hash) => {
-            println!("File successfully uploaded. New root hash: {:#?}", merkle_root_hash);
-            // TODO: Save the root hash.
+            // println!("File successfully uploaded. New root hash: {:?}", merkle_root_hash);
+            // Skriv hash till client/bin/root_hash
+            if !std::path::Path::new("bin/").exists() { std::fs::create_dir_all("bin/").unwrap(); }
+            std::fs::write("./bin/root_hash", merkle_root_hash.to_string()).unwrap();
         }
         // TODO: Possible improvement: Handle FileListing as well
         // TODO: Handle FileNotFound and others
@@ -87,6 +93,17 @@ fn handle_response(archived: &ArchivedServerToClientResponse) {
 
 fn main() {
     let cli = Cli::parse();
+
+    let mut root_hash = String::from("nothing");
+
+    let f = std::fs::File::open("./bin/root_hash");
+    if f.is_ok() {
+        let mut content = String::new();
+        f.unwrap().read_to_string(&mut content).unwrap();
+        if !content.is_empty() { root_hash = content; }
+    }
+
+    println!("Hash is: {}", root_hash);
 
     let to_server = match cli.command {
         Commands::Upload { name } => {
@@ -105,31 +122,30 @@ fn main() {
         }
     };
 
-    let root_hash: String = String::from("nothing");
     // kolla här: ska vi en funktion som täcker alla typer av meddeledanden som klienten
     // kan skicka? eller kanske en för send_file(file), read_file(file_number) ?
     match TcpStream::connect("127.0.0.1:8383") {
-            Ok(mut s) => {
+        Ok(mut s) => {
             let mut reader = s.try_clone().unwrap();
             let mut buf_reader = BufReader::new(&mut reader);
             send(to_server, &mut s).unwrap();
             //send_str("I am a message.", &mut s);
 
-            loop {
+            // loop {
                 let mut header_info = [0u8; 16];
                 buf_reader.read_exact(&mut header_info).unwrap();
-                let bytes_to_read = u64::from_str_radix(from_utf8(&header_info).unwrap(), 16).unwrap();
+                let bytes_to_read = usize::from_str_radix(from_utf8(&header_info).unwrap(), 16).unwrap();
 
-                let mut data = vec![0u8; bytes_to_read as usize]; // Skicka inte absurdt stora filer på 32-bit system.
+                let mut data = vec![0u8; bytes_to_read]; // Skicka inte absurdt stora filer på 32-bit system.
                 buf_reader.read_exact(&mut data).unwrap();
 
                 // Avkommentera för att se skickat data i form av fil:
                 //std::fs::File::create("output.dat").unwrap().write_all(&data).unwrap();
 
                 let archived = common::rkyv::check_archived_root::<ServerToClientResponse>(&data[..]).unwrap();
-                handle_response(archived);
-                break
-            }
+                handle_response(archived, root_hash);
+                // break
+            // }
 
             //send_str("I am another message.", &mut s);
             //send(common::ClientToServerCommand::List("/".into()), &mut s).unwrap();

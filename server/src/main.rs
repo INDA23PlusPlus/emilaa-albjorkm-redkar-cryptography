@@ -184,15 +184,30 @@ fn handle_command(peer: SocketAddr, s: &mut TcpStream, cmd: &ArchivedClientToSer
             if !file_found {
                 send(ServerToClientResponse::FileNotFound(name.to_string()), s).unwrap();
             }
-
+        }
+        ArchivedClientToServerCommand::ListFiles(filter) => {
+            let merkle = merkle.lock().unwrap();
+            let mut files = vec![];
+            for i in 0 .. merkle.file_count {
+                // Remember that files are not zero indexed in the merkle tree.
+                let Some(file) = &merkle.files[i + 1] else {
+                    continue
+                };
+                let archived = common::rkyv::check_archived_root::<FileAndMeta>(file).unwrap();
+                if filter.starts_with(archived.name.as_str()) {
+                    continue
+                }
+                files.push(archived.name.to_string());
+            }
+            send(ServerToClientResponse::FileListing(files), s).unwrap();
 
         }
-        _ => {
+        /*_ => {
             println!("No handler for: {:#?}", cmd);
             let mut cmd_name = format!("{:?}", cmd);
             cmd_name.truncate(cmd_name.find('(').unwrap_or(cmd_name.len()));
             send(ServerToClientResponse::UnknownCommand(cmd_name), s).unwrap();
-        }
+        }*/
     }
 }
 

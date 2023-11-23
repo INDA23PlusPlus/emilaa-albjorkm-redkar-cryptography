@@ -67,6 +67,8 @@ fn handle_response(archived: &ArchivedServerToClientResponse) {
            let file_and_meta = common::rkyv::check_archived_root::<FileAndMeta>(file_and_meta_bytes).unwrap();
            std::io::stdout().write_all(&file_and_meta.data).unwrap();
         }
+        // TODO: Possible improvement: Handle FileListing as well
+        // TODO: Handle FileNotFound and others
         _ => { println!("response from server: {:#?}", archived); }
     }
 }
@@ -80,7 +82,7 @@ fn main() {
             ClientToServerCommand::Upload(name, data)
         }
         Commands::Ls { name } => {
-            ClientToServerCommand::List(name)
+            ClientToServerCommand::ListFiles(name)
         }
         Commands::Download { name } => {
             ClientToServerCommand::Get(name)

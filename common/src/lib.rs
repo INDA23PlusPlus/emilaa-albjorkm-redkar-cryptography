@@ -21,7 +21,7 @@ pub enum ServerToClientResponse {
 pub enum ClientToServerCommand {
     Get(String),
     Upload(String, Vec<u8>),
-    List(String),
+    ListFiles(String),
     Raw(String),
 }
 

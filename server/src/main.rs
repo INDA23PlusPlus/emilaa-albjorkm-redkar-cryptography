@@ -81,14 +81,17 @@ impl Merkle {
         }
 
         // return a vector of complementary nodes from greatest depth to highest
-        let mut node = file_id + LEAF_COUNT;
+        let mut node = file_id + LEAF_COUNT - 1;
         let mut current_known_hash: usize = node;
         while node > 1 {
             node /= 2;
             for i in 0..2 {
-                if let Some(hash) = self.tree[node * 2 + i].clone() {
-                    if current_known_hash != node * 2 + i {
+                if current_known_hash != node * 2 + i {
+                    if let Some(hash) = self.tree[node * 2 + i].clone() {
                         data_complement_hashes.push(hash);
+                    } else {
+                        // really ugly but should work
+                        data_complement_hashes.push("empty".to_string());
                     }
                 }
             }

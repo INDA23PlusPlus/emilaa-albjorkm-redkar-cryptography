@@ -11,6 +11,8 @@ use std::str::from_utf8;
 use clap::{Parser, Subcommand, command};
 use rand::{RngCore, rngs};
 
+const TREE_HEIGHT: usize = 4;
+
 fn send(msg: common::ClientToServerCommand, stream: &mut TcpStream) -> Result<(), std::io::Error> {
     let packet = common::rkyv::to_bytes::<_, 256>(&msg).unwrap();
     let header = format!("{:016X}", packet.len());
@@ -35,11 +37,14 @@ fn check_hashes_against_tophash(top_hash: String, file_data: &[u8], data_complem
     let mut hasher = Sha3::sha3_256();
     hasher.input(file_data);
     let mut hash_val: String = hasher.result_str();
-    println!("{:?}", hash_val);
+    // println!("{:?}", hash_val);
+    // println!("length of comp hashes: {}", data_complement_hashes.len());
     for i in 0..data_complement_hashes.len() {
         hasher.reset();
         hasher.input_str(hash_val.as_str());
-        hasher.input_str(data_complement_hashes[i].as_str());
+        if data_complement_hashes[i].clone() != "empty".to_string() {
+            hasher.input_str(data_complement_hashes[i].as_str());
+        }
         hash_val = hasher.result_str();
     }
     
